@@ -1,0 +1,62 @@
+name: Docker
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-scan:
+    name: Build and scan image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: syncbox:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.32.0
+        with:
+          image-ref: syncbox:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Smoke-test container
+        env:
+          SYNCBOX_TOKEN: ci-test-token
+        run: |
+          docker run --detach --rm --name syncbox-ci \\
+            --publish 127.0.0.1:18080:8080 \\
+            --env SYNCBOX_TOKEN \\
+            --env SYNCBOX_DATA_DIR=/data \\
+            --tmpfs /data:rw,noexec,nosuid,size=16m \\
+            syncbox:ci
+          trap 'docker stop syncbox-ci >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/api/healthz; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs syncbox-ci
+          exit 1

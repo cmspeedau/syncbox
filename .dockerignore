@@ -1,0 +1,20 @@
+# Source control and local-only files
+.git
+.github
+
+# Local environment/secrets
+.env
+.env.*
+!.env.example
+
+# Persisted application data
+data
+
+# Frontend dependencies and build output (built in Docker)
+web/node_modules
+web/dist
+
+# Editor / OS files
+.DS_Store
+.idea
+.vscode
